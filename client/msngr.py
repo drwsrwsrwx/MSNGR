@@ -12,6 +12,8 @@
 try:
     import M2Crypto
     import threading
+    import socket
+    import pickle
     from ast import literal_eval
 except:
     print """
@@ -22,112 +24,167 @@ except:
               - ast       (Available on python-pip2)\n
           """
 
-def encryptMessage(message):
+def encryptMessage(message, keyid):
     #sends a message to the connected server for distribution
     try:
-        key = open(config.config["public_location"],"rb").read()
+        msg = config.config['nick'] + " | " + message
+        key = config.publist[keyid]
         bio = M2Crypto.BIO.MemoryBuffer(key)
         rsa = M2Crypto.RSA.load_pub_key_bio(bio)
         encryptedMessage = (rsa.public_encrypt(message, M2Crypto.RSA.pkcs1_oaep_padding)).encode("base64")
         del rsa, bio
-        return encryptedMessage
+        return "{}::{}".format(keyid, encryptedMessage)
     except Exception as e:
-        print "An Error Occurred:\n" + e
+        print "encryptMessage()\nAn Error Occurred:\n" + str(e)
 
 def decryptMessage(message):
     try:
-        rsa = M2Crypto.RSA.load_key_string(open(config.config["private_location"],"r").read())
-        decryptedMessage = rsa.private_decrypt(message.decode("base64"), M2Crypto.RSA.pkcs1_oaep_padding)
-        del rsa
-        return decryptedMessage
+        if "::" not in message:
+            rsa = M2Crypto.RSA.load_key_string(open(config.config["private_location"],"r").read())
+            decryptedMessage = rsa.private_decrypt(message.decode("base64"), M2Crypto.RSA.pkcs1_oaep_padding)
+            del rsa
+            return decryptedMessage
     except Exception as e:
-        print "An Error Occurred:\n" + e
+        if config.debug:
+            print "decryptMessage()\nAn Error Occurred:\n" + str(e)
 
 
-def listener(sock):
+def listener():
+    import hashlib
+    import pickle
+    md5 = hashlib.md5()
+    md5.update(open(config.config['public_location'], "rb").read())
+
+    #print "Starting listener..."
     while config.chatstatus:
-        data = sock.recv(4096)
-        print decryptMessage(data)
+        try:
+            data = config.sock.recv(4096)
+            if config.debug:
+                print """
+                \r----- RECEIVED ----
+                \r{}
+                \r-----   END    ----
+                """.format(repr(data))
+            if "::" in data:
+                key, value = data.split("::")
+                if key == "active_users":
+                    config.publist = pickle.loads(value)
+                    if config.debug:
+                        print "Updated Active users..."
+            else:
+                #print "Attempting to decrypt message> " + data
+                print decryptMessage(data)
+        except Exception as e:
+            if config.debug:
+                print "[!] Listener() Error: \n{}".format(str(e))
 
-def chatter(sock):
-    while config.chatstatus:
-        message = config.config['nick'] + " | " + raw_input("> ")
-        sock.send(encryptMessage(message))
+def hasher(key):
+    import hashlib
+    md5 = hashlib.md5()
+    md5.update(key)
+    return md5.hexdigest()
+
+def testPrivateKey(key_location):
+    try:
+        rsa = M2Crypto.RSA.load_key_string(open(config.config["private_location"],"r").read())
+        del rsa
+    except:
+        print """
+              \r[!] Error
+              \r    Unable to load private key. Is the location correct in msngr.conf?\n
+              \r    Error: {}\n
+              \r    Current Setting: {}\n
+              """.format(str(e), config.config['private_location'])
+        exit()
+
+
+def testPublicKey(key_location):
+    try:
+        key = open(config.config['public_location'], "rb").read()
+        bio = M2Crypto.BIO.MemoryBuffer(key)
+        rsa = M2Crypto.RSA.load_pub_key_bio(bio)
+        del key, bio, rsa
+    except Exception as e:
+        print """
+              \r[!] Error
+              \r    Unable to load public key. Is the location correct in msngr.conf?\n
+              \r    Error: {}\n
+              \r    Curent Setting: {}\n
+              """.format(str(e), config.config['public_location'])
+        exit()
 
 
 class configClass():
     def __init__(self):
-        
+        import hashlib
         self.chatstatus = False
         self.config = {}
+        self.publist = {}
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.debug = False 
         try:
             configFile = open("msngr.conf", "r").read().strip().split("\n")
 
             for value in configFile:
                 var1, var2 = value.split(":")
                 self.config[var1] = var2
+            
         except:
             print """
-                  [!] Configuration File Error
-
-                      Please check that a msngr.conf file is in the same location as msngr.py
-                      Download default config file here: http://invalidpanda.xyz/MSNGR/msngr.conf
+                  \n
+                  \r[!] Configuration File Error
+                  \r
+                  \r    Please check that a msngr.conf file is in the same location as msngr.py
+                  \r    Download default config file here: http://invalidpanda.xyz/MSNGR/msngr.conf
                   """
+        md5 = hashlib.md5()
+        md5.update(open(self.config['public_location'], "rb").read())
+        self.myid = md5.hexdigest()
+        print "My ID: {}".format(self.myid)
 
 #  print msngr_msgs["welcome"]
 config = configClass()
 msngr = True
-
+import threading
 while msngr:
-    for x in config.config:
-        print "{}: {}".format(x, config.config[x])
-    usrinput = raw_input("Are these settings correct?\n[y/n]>")
-    if usrinput == "y":
-        print "Continuing..."
-    else:
-        exit()
-    print "Trying keys..."
 
-    try:
-        key = open(config.config['public_location'], "rb").read()
-        bio = M2Crypto.BIO.MemoryBuffer(key)
-        rsa = M2Crypto.RSA.load_pub_key_bio(bio)
-        del bio
-        del rsa
-    except Exception as e:
-        print "Error loading public key. Please make sure the location is correct."
-        print "Current Setting: {}".format(config.config['public_location'])
-        print "Exception: " + str(e)
+    print "[+] Importing settings from msngr.conf"
+    testPublicKey(config.config['public_location'])
+    testPrivateKey(config.config['private_location'])
+    print "[+] Keys imported successfully."
 
-    try:
-        rsa = M2Crypto.RSA.load_key_string(open(config.config['private_location'],"r").read())
-        del rsa
-    except Exception as e:
-        print "Error loading private key. Please make sure the location is correct."
-        print "Current Setting: {}".format(config.config['private_location'])
-        print "Exception: " + str(e)
+    io = raw_input("[+] Connect to Server?\n[y/n]>")
+    if io[:1] == "y":
+        rhost, rport = raw_input("\r\nExample: 0.0.0.0:00000\n>").split(":")
+        config.sock.connect((rhost, int(rport)))
+        config.chatstatus = True
 
-    print "Keys loaded successfully."
-    usrinput = raw_input("Connect to Server?\n[y/n]>")
-    if usrinput[:-1] == "y":
-        config.config["server"] = raw_input("Example: 0.0.0.0:0000\n>").strip()
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.connect((config.config['server'].split(":")))
-            config.chatstatus = True
-            print "Starting listener..."
-            t = threading.Thread(target=listener, args=(sock))
-            t.setDaemon(True)
-            t.start()
-        except:
-            print "Connection Error."
-            exit()
+        print config.sock.recv(1024)
+        config.sock.sendall(open(config.config['public_location'],"rb").read())
+        print "Sent public key"
+        print "Waiting for public keys from server..."
+        config.sock.send("request::active_users")
+        activeList = config.sock.recv(8192).split("::")
+        print repr(activeList)
+        config.publist = pickle.loads(activeList[1])
+        print "Setup complete. Welcome to the chat!"
+        print "Starting Listener..."
+        t = threading.Thread(target=listener, args=())
+        t.setDaemon(1)
+        t.start()
+
     else:
         exit()
 
     while config.chatstatus:
-        #  have the server send it's public key.
-        #  have client send in public key
-        #  have the server send all public keys of attached clients.
-        print repr(config.chatstatus)
-        exit()
+        # config.sock.sendall("request::active_users")
+        message = raw_input("[{}]> ".format(config.config['nick']))
+        for keyid in config.publist:
+            if keyid != config.myid:
+                encMsg = encryptMessage(message, keyid)
+                if config.debug:
+                    print encMsg
+                print "IDs in list"
+                config.sock.sendall(encMsg)
+
+        
