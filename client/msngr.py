@@ -31,7 +31,7 @@ def encryptMessage(message, keyid):
         key = config.publist[keyid]
         bio = M2Crypto.BIO.MemoryBuffer(key)
         rsa = M2Crypto.RSA.load_pub_key_bio(bio)
-        encryptedMessage = (rsa.public_encrypt(message, M2Crypto.RSA.pkcs1_oaep_padding)).encode("base64")
+        encryptedMessage = (rsa.public_encrypt(msg, M2Crypto.RSA.pkcs1_oaep_padding)).encode("base64")
         del rsa, bio
         return "{}::{}".format(keyid, encryptedMessage)
     except Exception as e:
@@ -165,7 +165,8 @@ while msngr:
         print "Waiting for public keys from server..."
         config.sock.send("request::active_users")
         activeList = config.sock.recv(8192).split("::")
-        print repr(activeList)
+        if config.debug:
+            print repr(activeList)
         config.publist = pickle.loads(activeList[1])
         print "Setup complete. Welcome to the chat!"
         print "Starting Listener..."
@@ -184,7 +185,8 @@ while msngr:
                 encMsg = encryptMessage(message, keyid)
                 if config.debug:
                     print encMsg
-                print "IDs in list"
                 config.sock.sendall(encMsg)
+        if config.debug:
+            print len(config.publist)
 
         
