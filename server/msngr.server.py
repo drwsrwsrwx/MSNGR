@@ -1,4 +1,4 @@
-# Author      : Tom McDowell
+# Author      : drwsrwsrwx
 # Version     : 1.0.0.1
 
 # Description : Server which forwards messages from multiple msngr clients.
