@@ -1,4 +1,3 @@
-# Author      : Tom McDowell
 # Version     : 1.0.0.12
 # 
 # Description : MSNGR is a open source basic end-to-end encrypted messenger completely written in python, using simple first time setup
